@@ -45,4 +45,4 @@ The codebase has been developed and tested with the following core dependencies:
 You can easily reproduce the environment using the provided `environment.yml` file:
 ```bash
 conda env create -f environment.yml
-conda activate nzz
+conda activate ***
