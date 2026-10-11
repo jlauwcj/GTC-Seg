@@ -5,7 +5,7 @@
 > ⏳ **The full source code, dataset preparation scripts, and pre-trained models are currently undergoing internal cleanup and will be released here upon publication or during the rebuttal phase.**
 
 <p align="center">
-  <img src="Figure_1.png" width="100%">
+  <img src="figs/Figure_1.png" width="100%">
 </p>
 
 ## 💡 Abstract
@@ -17,7 +17,7 @@ Weakly supervised 3D point cloud semantic segmentation (WS3DSS) under extreme sp
 ## 🏗️ Framework Overview
 
 <p align="center">
-  <img src="Figure_2.png" width="100%">
+  <img src="figs/Figure_2.png" width="100%">
 </p>
 
 > **Overview of the proposed GTC-Seg framework.** The architecture collaboratively comprises a hybrid 3D backbone for native feature extraction and two parallel consistency enhancement streams: the Cross-modal Gated Consistency Module (CGCM) for external semantic anchoring and the Pseudo-Label Refinery (PLR) for temporal supervisory stabilization.
