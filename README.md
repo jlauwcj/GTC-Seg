@@ -11,7 +11,7 @@
 ## 💡 Abstract
 Weakly supervised 3D point cloud semantic segmentation (WS3DSS) under extreme sparsity (e.g., 0.1% labels) constitutes a severely ill-posed learning problem. To address the absence of multi-level consistency regularization, we propose **GTC-Seg**, a unified framework that enforces:
 1. **Geometric Structural Consistency (LEAP):** Preserves high-frequency topological details before spatial downsampling via explicit relative position encoding.
-2. **Cross-Modal Semantic Consistency (CGCM):** Safely injects 2D foundation model (MaskCLIP) priors into 3D feature space through a category-aware rejection gate.
+​2. **Cross-Modal Semantic Consistency (CGCM):** Safely injects 2D foundation model (MaskCLIP) priors into 3D feature space through a category-aware rejection gate.
 3. **Temporal Prediction Consistency (PLR):** Blocks error accumulation using a dual-scale temporal memory bank and dynamic thresholding.
 
 ## 🏗️ Framework Overview
@@ -35,12 +35,14 @@ The upcoming code release will include:
 - [ ] Pre-trained weights for quick reproduction.
 - [ ] Detailed data preprocessing guidelines.
 
-## 🔗 Citation
-If you find our methodology interesting, please consider citing our work:
-```bibtex
-@article{niu2026gtcseg,
-  title={Cross-Modal Semantic and Temporal Consistency Learning for Weakly-Supervised Point Cloud Semantic Segmentation},
-  author={Niu, Zhuozhen and Wen, Changji and Zhang, Leyao and Shi, Yaqi and Li, Siyang and Li, Mingqi and Wang, Shengsheng and Lv, Yanfeng and Chen, Hongbing},
-  journal={Under Review},
-  year={2026}
-}
+## 💻 Environment Requirements
+The codebase has been developed and tested with the following core dependencies:
+- **Python**: 3.8
+- **PyTorch**: 2.3.1+cu118 (CUDA 11.8)
+- **PyTorch Geometric**: 2.6.1 (with `torch-scatter`, `torch-sparse`, `torch-cluster`, `torch-spline-conv`)
+- **Other**: `numpy==1.22.4`, `scipy==1.8.1`, `einops==0.8.1`
+
+You can easily reproduce the environment using the provided `environment.yml` file:
+```bash
+conda env create -f environment.yml
+conda activate nzz
