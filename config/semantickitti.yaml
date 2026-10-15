@@ -1,0 +1,54 @@
+DATA:
+  data_name: semantickitti
+  data_root: /media/dell/wcjdata/nzz/PointCT-main/dataset/SemanticKITTI
+  test_area: '08'
+  classes: 19
+  fea_dim: 4
+  voxel_size: 0.05
+  voxel_max: 70000
+  loop: 1
+
+TRAIN:
+  arch: hybrid_weak_semantickitti
+  use_xyz: True
+  sync_bn: False
+  ignore_label: 255
+  train_gpu: [0]
+  workers: 8
+  batch_size: 4
+  batch_size_val: 2
+  base_lr: 0.001
+  epochs: 100
+  start_epoch: 69
+  step_epoch: 30
+  multiplier: 0.5
+  momentum: 0.9
+  weight_decay: 0.01
+  drop_rate: 0.5
+  manual_seed: 7777
+  print_freq: 50
+  save_freq: 1
+  save_path: saved_models/semantickitti
+  weight: None
+  resume: /media/dell/wcjdata/nzz/PointCT-main/saved_models/semantickitti/model/model_last.pth
+  evaluate: True
+  eval_freq: 1
+  labeled_point: 1%
+  use_cgcm: True
+  clip_lambda: 0.05
+
+Distributed:
+  dist_url: tcp://localhost:8888
+  dist_backend: 'nccl'
+  multiprocessing_distributed: False
+  world_size: 1
+  rank: 0
+
+TEST:
+  split: val
+  test_gpu: [0]
+  test_workers: 4
+  batch_size_test: 4
+  model_path: saved_models/semantickitti/model/model_best.pth
+  save_folder: results/semantickitti/test
+  names_path: data/semantickitti/semantic-kitti.yaml

@@ -1,0 +1,39 @@
+DATA:
+  data_name: lidarnet
+  data_root: /root/lanyun-tmp/GTC-Seg/dataset/lidarnet_test_pth 
+  classes: 24
+  fea_dim: 6
+  voxel_size: 0.04
+  voxel_max: 800000 
+  loop: 1 
+
+TRAIN:
+  arch: weak
+  use_xyz: True
+  sync_bn: False
+  ignore_label: 24
+  train_gpu: [0]
+  workers: 4
+  batch_size: 4
+  base_lr: 0.0005
+  epochs: 100
+  start_epoch: 0
+  manual_seed: 7777
+  print_freq: 25
+  save_freq: 1
+  save_path: saved_models/lidarnet
+  weight: saved_models/lidarnet/model/model_best.pth  
+  resume: None
+  evaluate: True 
+  eval_freq: 1
+  labeled_point: 100%
+
+TEST:
+  data_root_val: /root/lanyun-tmp/GTC-Seg/dataset/lidarnet_test_pth/val
+  split: val  
+  test_gpu: [0]
+  test_workers: 4
+  batch_size_test: 1 
+  model_path: saved_models/lidarnet/model/model_best.pth 
+  save_folder: results/lidarnet/test 
+  names_path: None
