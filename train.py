@@ -70,8 +70,6 @@ def get_logger(log_file):
     logger.addHandler(file_handler)
     return logger
 
-
-# ========== [核心修复 2：worker_init_fn 作用域错误] ==========
 # 去掉了对外部 args 的依赖，直接使用 PyTorch 分配给 worker 的原生种子
 def worker_init_fn(worker_id):
     worker_seed = torch.initial_seed() % (2**32 - 1)
@@ -238,8 +236,7 @@ def main_worker(gpu, ngpus_per_node, argss):
 
     else:
         raise Exception('dataset not supported: {}'.format(args.data_name))
-    
-    # ========== 初始化 Student 和 Teacher 模型 ==========
+
     model = Model(c=args.fea_dim, k=args.classes)
     
     teacher_model = Model(c=args.fea_dim, k=args.classes)
@@ -477,7 +474,6 @@ def train(train_loader, model, teacher_model, criterion, optimizer, epoch, refin
                             pseudo_labels = pseudo_labels_filtered
                             alpha = 0.2
                         else:
-                            # [阶段一：长尾探索期] 动态自适应阈值
                             pseudo_labels_filtered = torch.zeros_like(pseudo_labels).fill_(args.ignore_label)
                             for c in range(args.classes):
                                 
@@ -512,8 +508,6 @@ def train(train_loader, model, teacher_model, criterion, optimizer, epoch, refin
                 loss = loss_main + loss_con
             else:
                 loss = loss_main
-
-        # ========== [核心修复 3：EMA 更新检查 scaler 状态] ==========
         scale_before = scaler.get_scale()
         scaler.scale(loss).backward()
         scaler.step(optimizer)
@@ -570,7 +564,6 @@ def train(train_loader, model, teacher_model, criterion, optimizer, epoch, refin
                            remain_time=remain_time, loss_meter=loss_meter)
             
             if args.data_name == 'semantickitti':
-                # ========== [修复：正确输出 Ratio] ==========
                 cgcm_ratio = loss_con.item() / (loss_main.item() + 1e-8)
                 log_str += '(Main:{:.3f}/Con:{:.3f}/Ratio:{:.3f}) '.format(
                     loss_main.item(),
@@ -622,7 +615,6 @@ def validate(val_loader, model, criterion):
                 else:
                     output = model([coord, feat, offset])
             
-            # 移出 autocast，强制 float32 计算 loss，确保数值稳定
             output = output.float()
             pseudo_labels = torch.zeros_like(target).fill_(args.ignore_label)
             loss, _ = criterion(output, target, pseudo_labels, alpha=0.0)
