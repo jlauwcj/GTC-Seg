@@ -8,7 +8,6 @@ import shutil
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
@@ -19,20 +18,15 @@ import torch.multiprocessing as mp
 import torch.distributed as dist
 import torch.optim.lr_scheduler as lr_scheduler
 from tensorboardX import SummaryWriter
-
-# 导入 PyTorch 混合精度训练模块
 from torch.cuda.amp import autocast, GradScaler
-
 from util import config
 from util.s3dis import S3DIS
 from util.scannet import Scannetv2
 from util.stpls3d import STPLS
 from util.semantickitti import SemanticKITTIDataset
 from model.semantickitti import hybrid_weak_seg_repro as ModelSemanticKITTI
-
 from util.common_util import AverageMeter, intersectionAndUnionGPU, find_free_port
 from util import transform as t
-
 from util.pseudo_label_refinery import PseudoLabelRefinery, HybridLoss, get_optimal_config
 
 # 设置matplotlib字体
@@ -70,12 +64,11 @@ def get_logger(log_file):
     logger.addHandler(file_handler)
     return logger
 
-# 去掉了对外部 args 的依赖，直接使用 PyTorch 分配给 worker 的原生种子
+
 def worker_init_fn(worker_id):
     worker_seed = torch.initial_seed() % (2**32 - 1)
     random.seed(worker_seed)
     np.random.seed(worker_seed)
-# ==========================================================
 
 
 def main_process():
@@ -125,7 +118,7 @@ def custom_collate_fn(batch):
     coords = torch.cat(coords, 0).float()
     feats = torch.cat(feats, 0).float()
     labels = torch.cat(labels, 0).long()
-    point_idxs = torch.cat(point_idxs, 0).long()
+    point_idxs = torch.cat([torch.as_tensor(p) for p in point_idxs], 0).long()
     
     lengths_tensor = torch.tensor(lengths, dtype=torch.int32)
     offset = torch.cumsum(lengths_tensor, dim=0)
@@ -193,9 +186,10 @@ def main_worker(gpu, ngpus_per_node, argss):
     global args, best_iou
     args, best_iou = argss, 0
 
-    # start_epoch 兜底初始化，防止未 resume 时 AttributeError
     if not hasattr(args, 'start_epoch'):
         args.start_epoch = 0
+        
+    use_amp = (args.data_name != 'scannet')
     
     train_loss_list = []
     train_mIoU_list = []
@@ -209,7 +203,6 @@ def main_worker(gpu, ngpus_per_node, argss):
             args.rank = args.rank * ngpus_per_node + gpu
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url, world_size=args.world_size, rank=args.rank)
 
-    # ========== 加载数据集 ==========
     current_collate_fn = custom_collate_fn
 
     if args.data_name == 's3dis':
@@ -221,7 +214,7 @@ def main_worker(gpu, ngpus_per_node, argss):
     elif args.data_name == 'scannet':
         from model.scannet import weak_seg_repro as Model
         train_data = Scannetv2(split='train', data_root=args.data_root, voxel_size=args.voxel_size, voxel_max=args.voxel_max, transform=None, shuffle_index=True, loop=args.loop, labeled_point=args.labeled_point)
-        val_data = Scannetv2(split='val', data_root=args.data_root, test_area=args.test_area, voxel_size=args.voxel_size, voxel_max=800000, transform=None)
+        val_data = Scannetv2(split='val', data_root=args.data_root, voxel_size=args.voxel_size, voxel_max=800000, transform=None)
 
     elif args.data_name == 'stpls3d':
         from model.stpls3d import weak_seg_repro as Model
@@ -236,7 +229,7 @@ def main_worker(gpu, ngpus_per_node, argss):
 
     else:
         raise Exception('dataset not supported: {}'.format(args.data_name))
-
+    
     model = Model(c=args.fea_dim, k=args.classes)
     
     teacher_model = Model(c=args.fea_dim, k=args.classes)
@@ -278,9 +271,15 @@ def main_worker(gpu, ngpus_per_node, argss):
         logger.info("=> creating model ...")
         logger.info("Classes: {}".format(args.classes))
         logger.info(model)
-        logger.info("=> Initialized EMA Teacher Model for SemanticKITTI PLR")
-        logger.info("=> AMP (Automatic Mixed Precision) Enabled for Faster Training")
-        logger.info("=> Class 6/7 excluded from pseudo label generation (parking/other-ground)")
+        
+        if args.data_name == 'semantickitti':
+            logger.info("=> Initialized EMA Teacher Model for SemanticKITTI PLR")
+            logger.info("=> Class 6/7 excluded from pseudo label generation (parking/other-ground)")
+        
+        if use_amp:
+            logger.info(f"=> AMP (Automatic Mixed Precision) ENABLED for {args.data_name} for faster training.")
+        else:
+            logger.info(f"=> AMP DISABLED for {args.data_name} (Using standard FP32 with Gradient Clipping).")
         
     if args.distributed:
         torch.cuda.set_device(gpu)
@@ -296,7 +295,6 @@ def main_worker(gpu, ngpus_per_node, argss):
         model = torch.nn.DataParallel(model.cuda())
         teacher_model = torch.nn.DataParallel(teacher_model.cuda())
 
-    # ========== 加载权重/恢复训练 ==========
     if args.weight:
         if os.path.isfile(args.weight):
             checkpoint = torch.load(args.weight)
@@ -315,7 +313,6 @@ def main_worker(gpu, ngpus_per_node, argss):
             best_iou = checkpoint['best_iou']
             if main_process(): logger.info("=> loaded checkpoint '{}'".format(args.resume))
 
-    # ========== 创建DataLoader ==========
     if args.distributed: train_sampler = torch.utils.data.distributed.DistributedSampler(train_data)
     else: train_sampler = None
     
@@ -335,10 +332,8 @@ def main_worker(gpu, ngpus_per_node, argss):
             pin_memory=True, sampler=val_sampler, collate_fn=current_collate_fn
         )
 
-    # ========== 初始化混合精度梯度缩放器 (AMP Scaler) ==========
-    scaler = GradScaler()
+    scaler = GradScaler(enabled=use_amp)
 
-    # ========== 训练循环 ==========
     for epoch in range(args.start_epoch, args.epochs):
         if main_process():
             print('='*70)
@@ -349,7 +344,7 @@ def main_worker(gpu, ngpus_per_node, argss):
             train_sampler.set_epoch(epoch)
         
         loss_train, mIoU_train, mAcc_train, allAcc_train = train(
-            train_loader, model, teacher_model, criterion, optimizer, epoch, refinery, is_weak, scaler
+            train_loader, model, teacher_model, criterion, optimizer, epoch, refinery, is_weak, scaler, use_amp
         )
         
         if args.data_name != 'semantickitti':
@@ -368,7 +363,7 @@ def main_worker(gpu, ngpus_per_node, argss):
 
         is_best = False
         if args.evaluate and (epoch_log % args.eval_freq == 0):
-            loss_val, mIoU_val, mAcc_val, allAcc_val = validate(val_loader, model, criterion)
+            loss_val, mIoU_val, mAcc_val, allAcc_val = validate(val_loader, model, criterion, use_amp)
             val_loss_list.append(loss_val)
             val_mIoU_list.append(mIoU_val)
 
@@ -403,20 +398,15 @@ def main_worker(gpu, ngpus_per_node, argss):
                     os.path.join(args.save_path, 'plots'), args.epochs-1)
 
 
-def train(train_loader, model, teacher_model, criterion, optimizer, epoch, refinery, is_weak, scaler):
-    """
-    训练函数 - AMP 混合精度加速 & 分阶段动态阈值
-    """
+def train(train_loader, model, teacher_model, criterion, optimizer, epoch, refinery, is_weak, scaler, use_amp):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     loss_meter = AverageMeter()
     intersection_meter = AverageMeter()
     union_meter = AverageMeter()
     target_meter = AverageMeter()
-
     
     SKIP_CLASSES = {6, 7}
-    
     
     model.train()
     teacher_model.eval()
@@ -445,7 +435,7 @@ def train(train_loader, model, teacher_model, criterion, optimizer, epoch, refin
 
         optimizer.zero_grad()
         
-        with autocast():
+        with autocast(enabled=use_amp):
             if args.data_name == 'semantickitti':
                 output, loss_con = model([coord, feat, offset], clip_labels=clip_label)
             else:
@@ -458,14 +448,13 @@ def train(train_loader, model, teacher_model, criterion, optimizer, epoch, refin
             if is_weak:
                 if args.data_name == 'semantickitti':
                     with torch.no_grad():
-                        with autocast():
+                        with autocast(enabled=use_amp):
                             teacher_output = teacher_model([coord, feat, offset], clip_labels=None)
                         
                         teacher_prob = torch.softmax(teacher_output.float(), dim=1)
                         max_prob, pseudo_labels = torch.max(teacher_prob, dim=1)
                         
                         if epoch >= 65:
-                            # [阶段二：精细收敛冲刺期]
                             pseudo_labels_filtered = torch.zeros_like(pseudo_labels).fill_(args.ignore_label)
                             pseudo_labels_filtered[max_prob >= 0.90] = pseudo_labels[max_prob >= 0.90]
                             
@@ -476,10 +465,8 @@ def train(train_loader, model, teacher_model, criterion, optimizer, epoch, refin
                         else:
                             pseudo_labels_filtered = torch.zeros_like(pseudo_labels).fill_(args.ignore_label)
                             for c in range(args.classes):
-                                
                                 if c in SKIP_CLASSES:
                                     continue
-                                # ==========================================
                                 c_mask = (pseudo_labels == c)
                                 if c_mask.sum() > 0:
                                     c_mean_prob = max_prob[c_mask].mean()
@@ -501,7 +488,6 @@ def train(train_loader, model, teacher_model, criterion, optimizer, epoch, refin
                         elif epoch < 60: alpha = (epoch - 3) / 57 * 0.6
                         else: alpha = 0.6
 
-            # 损失计算
             loss_main, loss_dict = criterion(output, target, pseudo_labels, alpha=alpha)
             
             if args.data_name == 'semantickitti':
@@ -510,6 +496,10 @@ def train(train_loader, model, teacher_model, criterion, optimizer, epoch, refin
                 loss = loss_main
         scale_before = scaler.get_scale()
         scaler.scale(loss).backward()
+        
+        scaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+
         scaler.step(optimizer)
         scaler.update()
         scale_after = scaler.get_scale()
@@ -520,9 +510,7 @@ def train(train_loader, model, teacher_model, criterion, optimizer, epoch, refin
             with torch.no_grad():
                 for student_param, teacher_param in zip(model.parameters(), teacher_model.parameters()):
                     teacher_param.data = ema_alpha_val * teacher_param.data + (1 - ema_alpha_val) * student_param.data
-        # ==========================================================
 
-        # 指标统计
         output = output.max(1)[1]
         loss_val = loss.float().item()
         n = coord.size(0)
@@ -570,7 +558,6 @@ def train(train_loader, model, teacher_model, criterion, optimizer, epoch, refin
                     loss_con.item() if hasattr(loss_con, 'item') else loss_con,
                     cgcm_ratio
                 )
-                # ==========================================
             log_str += 'Acc {accuracy:.4f}'.format(accuracy=accuracy)
             logger.info(log_str)
 
@@ -587,7 +574,7 @@ def train(train_loader, model, teacher_model, criterion, optimizer, epoch, refin
     return loss_meter.avg, mIoU, mAcc, allAcc
 
 
-def validate(val_loader, model, criterion):
+def validate(val_loader, model, criterion, use_amp):
     if main_process(): logger.info('>>>>>>>>>>>>>>>> Start Evaluation >>>>>>>>>>>>>>>>')
     
     batch_time = AverageMeter()
@@ -609,7 +596,7 @@ def validate(val_loader, model, criterion):
             target = target[:, 0]
         
         with torch.no_grad():
-            with autocast():
+            with autocast(enabled=use_amp):
                 if args.data_name == 'semantickitti':
                     output = model([coord, feat, offset], clip_labels=None)
                 else:
@@ -640,7 +627,6 @@ def validate(val_loader, model, criterion):
         accuracy = sum(intersection_meter.val) / (sum(target_meter.val) + 1e-10)
         loss_meter.update(loss_val, n)
         batch_time.update(time.time() - end)
-        end = time.time()
         
         if (i + 1) % args.print_freq == 0 and main_process():
             logger.info('Test: [{}/{}] Loss {loss_meter.val:.4f} Accuracy {accuracy:.4f}.'.format(
