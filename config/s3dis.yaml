@@ -1,6 +1,6 @@
 DATA:
   data_name: s3dis
-  data_root: /media/dell/wcjdata/nzz/PointCT-main/Pointnet_Pointnet2_pytorch-master/data/stanford_indoor3d/
+  data_root: 
   test_area: 5
   classes: 13
   fea_dim: 6
@@ -29,7 +29,7 @@ TRAIN:
   print_freq: 25
   save_freq: 1
   save_path: saved_models/s3dis
-  weight: saved_models/s3dis/model/LEAPmodel_best.pth
+  weight: None
   resume: None
   evaluate: True
   eval_freq: 1
@@ -51,5 +51,5 @@ TEST:
   batch_size_test: 4
   model_path: saved_models/s3dis/model/model_best.pth
   save_folder: results/s3dis/test
-  names_path: /media/dell/wcjdata/nzz/PointCT-main/Pointnet_Pointnet2_pytorch-master/data/stanford_indoor3d/s3dis_names.txt
+  names_path: /media/dell/wcjdata/data/stanford_indoor3d/s3dis_names.txt
 
