@@ -76,8 +76,6 @@ class STPLS(Dataset):
         # 存储数据集根路径
         self.data_root = data_root
         self.data_idx = np.arange(len(self.data_list))
-
-        # [新增] 根据参数决定是否预先写入共享内存
         if self.use_shm:
             print(f"[{split}] 正在将数据预加载到共享内存 (/dev/shm) 中，请耐心等待...")
             for file_name, directory in self.data_list:
@@ -96,11 +94,8 @@ class STPLS(Dataset):
         """获取单个样本"""
         data_idx = self.data_idx[idx % len(self.data_idx)]
         file_name, directory = self.data_list[data_idx]  # 获取文件名和所属目录
-        
-        # [修改] 根据开关决定从硬盘读还是从内存读
         if self.use_shm:
             shm_name = f"shm://stpls3d_{self.split}_{file_name}"
-            # 注意：必须使用 .copy()，否则多进程加载时极易发生段错误 (Segmentation Fault)
             data = SA.attach(shm_name).copy()
         else:
             full_path = os.path.join(self.data_root, directory, file_name + '.ply')  # 直接用目录构建路径
@@ -111,14 +106,8 @@ class STPLS(Dataset):
             
             # 读取并处理数据
             data = ply2array(full_path)
-        
-        # [新增] 1. 记录原始点云的总数（用于 PCL 缓冲区对齐）
         full_size = data.shape[0]
-        
-        # [新增] 2. 生成原始索引 (0 到 N-1)，跟随体素化下采样
         point_idx = np.arange(full_size)
-        
-        # 训练集数据增强：按比例标记点 (修复数据泄露 Bug)
         if self.split == 'train' or self.split == 'trainval':
             if isinstance(self.labeled_point, str) and '%' in self.labeled_point:
                 r = float(self.labeled_point.replace('%', '')) / 100
@@ -128,25 +117,15 @@ class STPLS(Dataset):
                 
             num_without_anno = full_size - num_with_anno
             if num_without_anno > 0:
-                # [核心修复] 使用局部固定的随机种子，防止跨 Epoch 泄露标签
                 rng = np.random.RandomState(data_idx)
                 idx_without_anno = rng.choice(full_size, num_without_anno, replace=False)
-                
-                # [修复] 统一使用 -100 作为 PyTorch 标准的忽略标签，而不是 255
                 data[idx_without_anno, 6] = -100 
-        
-        # 分离坐标、特征和标签
         coord, feat, label = data[:, 0:3], data[:, 3:6], data[:, 6]
-        
-        # [修改] 数据预处理（体素化等），同步传入并返回 point_idx
         coord, feat, label, point_idx = data_prepare_stpls3d(
             coord, feat, label, self.split, self.voxel_size, 
             self.voxel_max, self.transform, self.shuffle_index, point_idx
         )
-        
-        # [核心修复] 严格返回 train.py 期望的 7 个参数
         return coord, feat, label, len(coord), data_idx, point_idx, full_size
     
     def __len__(self):
-        """返回数据集长度（考虑loop参数）"""
         return len(self.data_idx) * self.loop
