@@ -1,6 +1,6 @@
 DATA:
   data_name: stpls3d
-  data_root: /media/dell/wcjdata/nzz/PointCT-main/dataset/stpls3d/ #data path
+  data_root: /media/dell/wcjdata/dataset/stpls3d/ #data path
   test_area: 1
   classes: 6
   fea_dim: 6
@@ -30,7 +30,7 @@ TRAIN:
   save_freq: 1
   save_path: saved_models/stpls3d # save model path
   weight:  # path to initial weight (default: none)
-  resume: /media/dell/wcjdata/nzz/PointCT-main/saved_models/stpls3d/model/model_last.pth
+  resume: /media/dell/wcjdata/saved_models/stpls3d/model/model_last.pth
   evaluate: True  # evaluate on validation set, extra gpu memory needed and small batch_size_val is recommend
   eval_freq: 1
   labeled_point: 0.1%
@@ -51,4 +51,4 @@ TEST:
   batch_size_test: 4
   model_path: saved_models/stpls3d/model/model_best.pth 
   save_folder: results/stpls3d # save result folder
-  names_path: /media/dell/wcjdata/nzz/PointCT-main/dataset/stpls3d/stpls_names.txt
+  names_path: /media/dell/wcjdata/dataset/stpls3d/stpls_names.txt
