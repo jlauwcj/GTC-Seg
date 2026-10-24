@@ -5,9 +5,6 @@ import torch.nn.functional as F
 from copy import copy, deepcopy
 import numpy as np
 from torch.utils.checkpoint import checkpoint as torch_checkpoint
-
-# ==================== 1. 核心组件：ResLFE (局部特征编码) ====================
-
 class DropPath(nn.Module):
     def __init__(self, drop_prob=0.0):
         super().__init__()
@@ -17,7 +14,6 @@ class DropPath(nn.Module):
         if self.drop_prob == 0. or not self.training:
             return x
         keep_prob = 1 - self.drop_prob
-        # 针对点云 Tensor 结构的随机深度实现
         shape = (x.shape[0], 1)
         random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
         random_tensor.floor_() 
@@ -25,7 +21,6 @@ class DropPath(nn.Module):
 
 @torch.jit.script
 def vector_feature_optimized(x: torch.Tensor, knn: torch.Tensor):
-    """针对 4090 优化的向量特征聚合"""
     B, N, C = x.shape
     _, _, k = knn.shape
     batch_indices = torch.arange(B, device=x.device).view(B, 1, 1).expand(B, N, k)
@@ -45,12 +40,10 @@ class VFR(nn.Module):
         x = self.linear(x)
         if self.training and knn is not None:
             x = vector_feature_optimized(x, knn)
-        # 展平进行 BatchNorm，再还原
         x = self.bn(x.reshape(B*N, -1)).view(B, N, -1)
         return x
 
 class FFN(nn.Module):
-    """Feed-Forward Network"""
     def __init__(self, in_dim, mlp_ratio=4.0, bn_momentum=0.1, act=nn.GELU, init=0.2):
         super().__init__()
         hid_dim = round(in_dim * mlp_ratio)
@@ -91,9 +84,6 @@ class ResLFE_Block(nn.Module):
             else:
                 x = self._forward_block(x, pe, knn, i)
         return x
-
-# ==================== 2. PointCT 核心 (WeakLayer) ====================
-
 class WeakLayer(nn.Module):
     """LEAP: Label-Efficient Attention for Point clouds"""
     def __init__(self, in_planes, out_planes, share_planes=8, nsample=16):
@@ -131,15 +121,10 @@ class WeakLayer(nn.Module):
         p, x, o = pxo
         x_q, x_k, x_v = self.linear_q(x), self.linear_k(x), self.linear_v(x)
         x_uni_spatial = self.linear_uni_spatial(x)
-        
-        # 局部近邻特征检索
         x_k = pointops.queryandgroup(self.nsample, p, p, x_k, None, o, o, use_xyz=True)
         x_v_j = pointops.queryandgroup(self.nsample, p, p, x_v, None, o, o, use_xyz=False)
-        n, nsample, c = x_v_j.shape
-        
+        n, nsample, c = x_v_j.shape      
         e, x_k = x_k[:, :, 0:3], x_k[:, :, 3:]
-        
-        # 优化后的坐标特征编码
         e_dis = torch.norm(e, dim=2, keepdim=True).clamp(min=1e-7)
         e_dis_xy = torch.norm(e[:, :, :2], dim=2, keepdim=True).clamp(min=1e-7)
         cos_theta_e = (e_dis_xy / e_dis).clamp(-1, 1)
@@ -160,8 +145,6 @@ class WeakLayer(nn.Module):
                 p_r = layer(p_r)
         
         p_r = p_r + self.d * all_feat
-        
-        # 权重分支计算
         w_spatial_d = F.softmax(torch.matmul((x_k - x_q.unsqueeze(1)).transpose(0, 2), x_uni_spatial), dim=1)
         w_spatial_e = F.softmax(torch.matmul(x, w_spatial_d.transpose(0, 1)).transpose(0, 1), dim=1)
         
@@ -175,9 +158,6 @@ class WeakLayer(nn.Module):
         
         w = self.softmax(w)
         return ((x_v_j + p_r) * w).sum(1).view(n, c)
-
-# ==================== 3. 采样与集成模块 ====================
-
 class Downsampling(nn.Module):
     def __init__(self, in_planes, out_planes, stride=1, nsample=16):
         super().__init__()
@@ -263,18 +243,13 @@ class WeakBlockWithResLFE(nn.Module):
         if self.use_reslfe:
             x_batch = x.unsqueeze(0)
             B, N, C = x_batch.shape
-            # 针对 4090：当点数极其巨大时采用近似 KNN 逻辑
             knn = torch.randint(0, N, (B, N, 16), device=x.device) if N > 12000 else None
             x = self.reslfe(x_batch, self.pe.expand(B, N, -1), knn).squeeze(0)
             
         x = self.bn3(self.linear3(x))
         x = self.dp(x) + identity
         return [p, self.act(x), o]
-
-# ==================== 4. 完整模型结构 ====================
-
 class WeakSeg(nn.Module):
-    # [修改点 1] 将默认 k 从 20 改成了 STPLS3D 常用的 14
     def __init__(self, block, blocks, c=6, k=14, unitArch=[32, 64, 128, 256, 512], **kwargs):
         super().__init__()
         self.in_planes = 6 
@@ -337,6 +312,5 @@ class WeakSeg(nn.Module):
         return self.cls(x1)
 
 def weak_seg_repro(custom=None, **kwargs):
-    # [修改点 3] STPLS3D 分类通常为 14。继续使用 [1, 3, 3, 6, 3] 层级结构
     model = WeakSeg(WeakBlockWithResLFE, [1, 3, 3, 6, 3], **kwargs)
     return model
