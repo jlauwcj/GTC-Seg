@@ -263,11 +263,6 @@ class FeaturePropagation(nn.Module):
 
 
 class HybridWeakSeg(nn.Module):
-    """
-    HybridWeakSeg模型 - 简化版
-    
-    说明：PCL集成已移至train.py，模型仅负责前向推理
-    """
     
     def __init__(self, c=6, k=13, unitArch=[32, 64, 128, 256, 512]):
         super().__init__()
@@ -385,18 +380,6 @@ class HybridWeakSeg(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, pxo):
-        """
-        前向传播
-        
-        Args:
-            pxo: [p, x, o]
-                p: [N, 3] 点坐标
-                x: [N, C] 点特征
-                o: [B] offset（累积点数）
-                
-        Returns:
-            logits: [N, num_classes] 分类logits
-        """
         p0, x0, o0 = pxo
         x0 = torch.cat([x0, p0], 1)
         
@@ -420,6 +403,5 @@ class HybridWeakSeg(nn.Module):
 
 
 def hybrid_weak_seg_repro(custom=None, **kwargs):
-    """模型工厂函数"""
     model = HybridWeakSeg(**kwargs)
     return model
