@@ -1,6 +1,6 @@
 DATA:
   data_name: semantickitti
-  data_root: /media/dell/wcjdata/nzz/PointCT-main/dataset/SemanticKITTI
+  data_root: /media/dell/wcjdata/dataset/SemanticKITTI
   test_area: '08'
   classes: 19
   fea_dim: 4
