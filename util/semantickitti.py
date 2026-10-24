@@ -12,16 +12,12 @@ class SemanticKITTIDataset(Dataset):
         self.transform = transform
         self.loop = loop
         self.labeled_point = labeled_point
-        
-        # 官方划分
         if split == 'train':
             self.seqs = ['00', '01', '02', '03', '04', '05', '06', '07', '09', '10']
         else:
-            self.seqs = ['08'] # 验证集
-            
+            self.seqs = ['08'] 
         self.data_list = []
         for seq in self.seqs:
-            # 自动寻找 sequences 目录
             seq_path = os.path.join(data_root, 'sequences', seq)
             if not os.path.exists(seq_path):
                 seq_path_alt = os.path.join(data_root, seq)
@@ -42,9 +38,6 @@ class SemanticKITTIDataset(Dataset):
                     'lb_path': os.path.join(seq_path, 'labels', f.replace('.bin', '.label')),
                     'clip_path': os.path.join(seq_path, 'clip_pseudo', f.replace('.bin', '.npy'))
                 })
-
-        # 【核心修复】标准的 SemanticKITTI 19类映射表 (0-18)
-        # 修复了之前将 81 映射为 19 导致的越界崩溃
         self.learning_map = {
             0 : 255,     # "unlabeled"
             1 : 255,     # "outlier"
@@ -98,17 +91,12 @@ class SemanticKITTIDataset(Dataset):
                 clip_label = np.full(label.shape, 255, dtype=np.uint8)
         else:
             clip_label = np.full(label.shape, 255, dtype=np.uint8)
-
         if self.split == 'train':
             rng = np.random.default_rng(index)
             mask = rng.random(label.shape) < 0.001 
             label[~mask] = 255
-
-        # 使用 NumPy 体素化
         coord, feat, label, clip_label = self.voxelize(coord, feat, label, clip_label)
-
         return coord, feat, label, clip_label
-
     def voxelize(self, coord, feat, label, clip_label):
         coord_min = np.min(coord, 0)
         coord -= coord_min
